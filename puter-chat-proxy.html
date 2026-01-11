@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Puter AI Chat Proxy</title>
+    <style>
+        body {
+            font-family: 'Courier New', monospace;
+            padding: 20px;
+            background: #0d0d0d;
+            color: #00ff99;
+            line-height: 1.6;
+        }
+        pre {
+            background: #1a1a1a;
+            padding: 15px;
+            border-radius: 8px;
+            overflow-x: auto;
+        }
+        .loading {
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+    </style>
+</head>
+<body>
+    <div id="result" class="loading">Initializing Puter.js chat proxy...</div>
+
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        async function startChat() {
+            const resultDiv = document.getElementById('result');
+            
+            try {
+                const params = new URLSearchParams(window.location.search);
+                const encoded = params.get('data');
+                
+                let messages = [];
+                let model = 'openrouter:meta-llama/llama-3.1-8b-instruct';
+                let temperature = 0.7;
+                let max_tokens = 2048;
+                let timeout = 120;
+
+                if (encoded) {
+                    const decoded = JSON.parse(atob(encoded));
+                    messages = decoded.messages || decoded.history || [];
+                    model = decoded.model || model;
+                    temperature = decoded.temperature ?? temperature;
+                    max_tokens = decoded.max_tokens ?? max_tokens;
+                    timeout = decoded.timeout ?? timeout;
+                } else {
+                    // fallback для коротких запросов
+                    const prompt = params.get('prompt') || params.get('message');
+                    if (prompt) {
+                        messages = [{ role: 'user', content: prompt }];
+                    }
+                    model = params.get('model') || model;
+                    temperature = parseFloat(params.get('temperature')) || temperature;
+                    max_tokens = parseInt(params.get('max_tokens')) || max_tokens;
+                }
+
+                if (messages.length === 0) {
+                    throw new Error('No messages provided. Use ?data=... or ?prompt=...');
+                }
+
+                resultDiv.classList.add('loading');
+                resultDiv.innerHTML = `Sending to ${model}...\n\nMessages: ${messages.length}\nPlease wait up to ${timeout}s...`;
+
+                // Таймаут
+                const timeoutPromise = new Promise((_, reject) => 
+                    setTimeout(() => reject(new Error(`Timeout after ${timeout}s`)), timeout * 1000)
+                );
+
+                // Запрос к Puter AI
+                const aiPromise = puter.ai.chat(messages, {
+                    model,
+                    temperature,
+                    max_tokens
+                });
+
+                const response = await Promise.race([aiPromise, timeoutPromise]);
+
+                resultDiv.classList.remove('loading');
+                resultDiv.innerHTML = `<pre>${JSON.stringify({
+                    success: true,
+                    response: response,
+                    model: model,
+                    usage: response.usage || null,
+                    timestamp: new Date().toISOString()
+                }, null, 2)}</pre>`;
+
+            } catch (err) {
+                resultDiv.classList.remove('loading');
+                resultDiv.innerHTML = `<pre style="color:#ff6666;">${JSON.stringify({
+                    success: false,
+                    error: err.message || 'Unknown error',
+                    details: err.toString(),
+                    timestamp: new Date().toISOString()
+                }, null, 2)}</pre>`;
+            }
+        }
+
+        window.addEventListener('load', startChat);
+    </script>
+</body>
+</html>
